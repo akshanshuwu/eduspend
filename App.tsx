@@ -36,7 +36,7 @@ const App: React.FC = () => {
       const parsed = JSON.parse(saved);
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
-      console.error("Failed to load expenses", e);
+      console.warn("EduSpend: Resetting corrupted expense data.");
       return [];
     }
   });
@@ -58,6 +58,13 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [tempBudget, setTempBudget] = useState(budget.monthlyLimit.toString());
 
+  // Keep tempBudget in sync when settings open
+  useEffect(() => {
+    if (isSettingsOpen) {
+      setTempBudget(budget.monthlyLimit.toString());
+    }
+  }, [isSettingsOpen, budget.monthlyLimit]);
+
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_EXPENSES_KEY, JSON.stringify(expenses));
   }, [expenses]);
@@ -75,12 +82,12 @@ const App: React.FC = () => {
     });
 
     const totalSpent = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
-    const limit = budget.monthlyLimit || 1;
+    const limit = Math.max(1, budget.monthlyLimit);
     const remaining = Math.max(0, budget.monthlyLimit - totalSpent);
     
     const dailyAverage = daysToCalculateAvg > 0 ? totalSpent / daysToCalculateAvg : 0;
-    const dailyBudgeted = budget.monthlyLimit / (totalDaysInMonth || 1);
-    const expectedSpendTillToday = dailyBudgeted * daysToCalculateAvg;
+    const dailyBudgeted = budget.monthlyLimit / Math.max(1, totalDaysInMonth);
+    const expectedSpendTillToday = dailyBudgeted * Math.max(0, daysToCalculateAvg);
     
     let runwayDays = 0;
     if (isCurrentMonth) {
@@ -105,20 +112,32 @@ const App: React.FC = () => {
       runwayDays,
       isOverspending,
       currentDay: daysToCalculateAvg,
-      totalDaysInMonth,
+      totalDaysInMonth: totalDaysInMonth || 30,
       monthName
     };
   }, [expenses, budget, viewDate]);
 
   const handleAddExpense = (newExp: Omit<Expense, 'id' | 'date'>) => {
-    const fallbackId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const generateId = () => {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+      }
+      return `exp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    };
+
     const expense: Expense = {
       ...newExp,
-      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : fallbackId,
+      id: generateId(),
       date: new Date().toISOString()
     };
+    
     setExpenses(prev => [...prev, expense]);
-    setViewDate(new Date());
+    
+    // Auto-switch to current month if we're elsewhere
+    const now = new Date();
+    if (viewDate.getMonth() !== now.getMonth() || viewDate.getFullYear() !== now.getFullYear()) {
+      setViewDate(now);
+    }
   };
 
   const handleDeleteExpense = (id: string) => {
@@ -143,8 +162,8 @@ const App: React.FC = () => {
   });
 
   return (
-    <div className="min-h-screen pb-12 selection:bg-indigo-500/30 selection:text-indigo-200 bg-slate-950 text-slate-100 antialiased">
-      <nav className="sticky top-0 z-50 glass-card border-b border-white/5 mb-8 px-4">
+    <div className="min-h-screen pb-12 bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500/30 selection:text-indigo-200">
+      <nav className="sticky top-0 z-40 glass-card border-b border-white/5 mb-8 px-4">
         <div className="max-w-7xl mx-auto h-20 flex items-center justify-between">
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
@@ -166,7 +185,7 @@ const App: React.FC = () => {
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <div className="px-3 md:px-6 py-1 text-center min-w-[120px] md:min-w-[180px]">
+            <div className="px-3 md:px-6 py-1 text-center min-w-[140px] md:min-w-[180px]">
               <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] block leading-none mb-1">Time Horizon</span>
               <span className="text-sm font-bold uppercase tracking-wide whitespace-nowrap">
                 {stats.monthName} {viewDate.getFullYear()}
@@ -183,13 +202,10 @@ const App: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <button 
-              onClick={() => {
-                setTempBudget(budget.monthlyLimit.toString());
-                setIsSettingsOpen(!isSettingsOpen);
-              }}
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all duration-300 ${isSettingsOpen ? 'bg-indigo-600 text-white shadow-indigo-900/40 shadow-lg' : 'bg-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-700'}`}
             >
-              <Edit3 className="w-4 h-4" /> <span className="hidden sm:inline">Edit Goal</span>
+              <Edit3 className="w-4 h-4" /> <span className="hidden sm:inline">Set Goal</span>
             </button>
           </div>
         </div>
@@ -203,14 +219,14 @@ const App: React.FC = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/70 backdrop-blur-[6px] z-40"
+                className="fixed inset-0 bg-black/80 backdrop-blur-[8px] z-50"
                 onClick={() => setIsSettingsOpen(false)}
               />
               <motion.div 
-                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="glass-card p-8 rounded-[2.5rem] shadow-2xl border border-white/10 absolute right-4 top-0 z-50 w-full max-w-sm space-y-6"
+                exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                className="glass-card p-8 rounded-[2.5rem] shadow-2xl border border-white/10 fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] w-[calc(100%-2rem)] max-w-sm space-y-6"
               >
                 <div className="flex justify-between items-center">
                   <h4 className="text-lg font-bold uppercase tracking-widest text-indigo-400">Budget Config</h4>
@@ -218,7 +234,7 @@ const App: React.FC = () => {
                 </div>
                 
                 <div className="space-y-4">
-                  <p className="text-xs font-medium text-slate-400 leading-relaxed">Adjust your target monthly limit. Metrics are updated instantly.</p>
+                  <p className="text-xs font-medium text-slate-400 leading-relaxed">Adjust your target monthly limit. All dashboard metrics will recalibrate instantly.</p>
                   <div>
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Monthly Target ($)</label>
                     <input 
@@ -234,14 +250,14 @@ const App: React.FC = () => {
                     onClick={updateBudget}
                     className="w-full bg-indigo-600 text-white py-4 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-900/40 active:scale-95"
                   >
-                    Confirm Configuration
+                    Save Changes
                   </button>
                 </div>
 
                 <div className="pt-6 border-t border-white/5">
                   <button 
                     onClick={() => {
-                      if(confirm("DANGER: This will permanently delete your entire spending history. Continue?")) {
+                      if(confirm("Confirm: This will permanently wipe all local spending data. This cannot be undone.")) {
                         setExpenses([]);
                         setBudget({ monthlyLimit: INITIAL_BUDGET, currency: 'USD' });
                         setIsSettingsOpen(false);
@@ -249,7 +265,7 @@ const App: React.FC = () => {
                     }}
                     className="w-full flex items-center justify-center gap-2 py-3 text-red-500 text-[10px] font-black uppercase tracking-widest hover:text-red-400 transition-all"
                   >
-                    <RotateCcw className="w-3.5 h-3.5" /> Factory Reset History
+                    <RotateCcw className="w-3.5 h-3.5" /> Wipe All Data
                   </button>
                 </div>
               </motion.div>
@@ -260,9 +276,9 @@ const App: React.FC = () => {
         <AnimatePresence mode="wait">
           <motion.div 
             key={viewDate.toISOString()}
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
+            exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.4, ease: "easeOut" }}
             className="space-y-8"
           >
@@ -280,7 +296,7 @@ const App: React.FC = () => {
                 icon={<TrendingUp className="w-5 h-5" />}
                 colorClass="bg-emerald-600"
                 trend={{ 
-                  value: `${Math.round((stats.remaining / (budget.monthlyLimit || 1)) * 100)}% left`, 
+                  value: `${Math.round((stats.remaining / Math.max(1, budget.monthlyLimit)) * 100)}% left`, 
                   isPositive: true 
                 }}
                 delay={0.1}
@@ -294,7 +310,7 @@ const App: React.FC = () => {
               />
               <StatCard 
                 label="Cash Runway"
-                value={stats.runwayDays === 0 ? "N/A" : `${Math.round(stats.runwayDays)} Days`}
+                value={stats.runwayDays <= 0 ? "N/A" : `${Math.round(stats.runwayDays)} Days`}
                 icon={<Calendar className="w-5 h-5" />}
                 colorClass="bg-slate-700"
                 trend={{ 
@@ -324,7 +340,7 @@ const App: React.FC = () => {
                       </h3>
                       <p className={`text-sm mt-1 leading-relaxed ${stats.isOverspending ? 'text-red-200/60' : 'text-green-200/60'}`}>
                         {stats.isOverspending 
-                          ? `You are ${formatCurrency(stats.totalSpent - stats.expectedSpendTillToday)} above your projected cap for this cycle.`
+                          ? `You are currently ${formatCurrency(stats.totalSpent - stats.expectedSpendTillToday)} above your projected cap for this cycle.`
                           : `Positive divergence: spending is ${formatCurrency(stats.expectedSpendTillToday - stats.totalSpent)} below threshold.`}
                       </p>
                     </div>
@@ -345,7 +361,7 @@ const App: React.FC = () => {
                     <div className="flex items-center justify-center md:justify-start gap-4 text-xs font-bold text-slate-400 uppercase tracking-widest">
                       <span className="flex items-center gap-2 bg-slate-900/80 border border-white/5 px-3 py-2 rounded-xl text-slate-300">
                         <Calendar className="w-3.5 h-3.5" /> 
-                        Observation Period: {stats.currentDay} / {stats.totalDaysInMonth}
+                        Cycle Progress: {stats.currentDay} / {stats.totalDaysInMonth}
                       </span>
                     </div>
                   </div>
@@ -353,13 +369,13 @@ const App: React.FC = () => {
                     <div className="flex justify-between items-end mb-1">
                       <span className="text-xs font-black uppercase tracking-widest text-slate-500">Resource Consumption</span>
                       <span className={`text-sm font-bold ${stats.isOverspending ? 'text-red-400' : 'text-indigo-400'}`}>
-                        {Math.round((stats.totalSpent / (budget.monthlyLimit || 1)) * 100)}%
+                        {Math.round((stats.totalSpent / Math.max(1, budget.monthlyLimit)) * 100)}%
                       </span>
                     </div>
                     <div className="h-5 bg-slate-800/80 rounded-full overflow-hidden p-1 shadow-inner relative border border-white/5">
                       <motion.div 
                         initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(100, (stats.totalSpent / (budget.monthlyLimit || 1)) * 100)}%` }}
+                        animate={{ width: `${Math.min(100, (stats.totalSpent / Math.max(1, budget.monthlyLimit)) * 100)}%` }}
                         transition={{ duration: 1.2, ease: [0.34, 1.56, 0.64, 1] }}
                         className={`h-full rounded-full shadow-lg relative ${stats.isOverspending ? 'bg-gradient-to-r from-red-500 to-red-700' : 'bg-gradient-to-r from-indigo-500 to-violet-600'}`}
                       >
@@ -367,7 +383,7 @@ const App: React.FC = () => {
                       </motion.div>
                     </div>
                     <div className="flex justify-between text-[10px] uppercase tracking-wider font-extrabold text-slate-600 px-1">
-                      <span>Baseline</span>
+                      <span>Cycle Base</span>
                       <span>Target Ceiling</span>
                     </div>
                   </div>
@@ -394,12 +410,12 @@ const App: React.FC = () => {
                       <h3 className="text-indigo-400 font-bold uppercase tracking-widest text-[10px] mb-4">Financial Projections</h3>
                       <h4 className="text-3xl font-extrabold mb-5 tracking-tight leading-tight">
                         {stats.totalSpent === 0 
-                          ? `New cycle: ${stats.monthName}. Data pending entry.` 
-                          : `Projected capital depletion: ${new Date(viewDate.getFullYear(), viewDate.getMonth(), stats.currentDay + stats.runwayDays).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.`
+                          ? `New cycle: ${stats.monthName}. Awaiting initial entry.` 
+                          : `Projected capital depletion: ${new Date(viewDate.getFullYear(), viewDate.getMonth(), stats.currentDay + Math.max(0, stats.runwayDays)).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.`
                         }
                       </h4>
                       <p className="text-slate-500 text-sm leading-relaxed max-w-lg mb-0 font-medium italic">
-                        *Statistical estimation based on current velocity variance.
+                        *Runway estimates are calculated based on historical daily variance within the selected cycle.
                       </p>
                     </div>
                     <div className="flex justify-end">
@@ -419,7 +435,7 @@ const App: React.FC = () => {
         <div className="max-w-xl mx-auto">
           <p className="text-slate-500 text-[10px] font-black tracking-[0.3em] uppercase mb-4">EduSpend Intelligence</p>
           <p className="text-slate-600 text-xs leading-relaxed">
-            Autonomous client-side analyzer for modern academic environments.
+            Autonomous client-side analyzer for modern academic environments. Version 2.0.
           </p>
         </div>
       </footer>
